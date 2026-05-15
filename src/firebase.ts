@@ -9,9 +9,9 @@ import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBOkar0Zx4UYZOg2j4i4TylibbMoGv1gTA",
-  authDomain: "number-duel.firebaseapp.com",
-  projectId: "number-duel",
-  storageBucket: "number-duel.firebasestorage.app",
+  authDomain: "numer-duel.firebaseapp.com",
+  projectId: "numer-duel",
+  storageBucket: "numer-duel.firebasestorage.app",
   messagingSenderId: "1070469159294",
   appId: "1:1070469159294:web:d024736d984dda8a443b2f",
   databaseURL: "https://numer-duel-default-rtdb.asia-southeast1.firebasedatabase.app",
