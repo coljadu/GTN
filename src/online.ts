@@ -17,6 +17,7 @@ import {
   type ThemeId,
   newGame,
   pick as enginePick,
+  randomStartingPlayer,
   timeout as engineTimeout,
 } from "./game";
 
@@ -33,6 +34,7 @@ export type MatchDoc = {
   players: { p1: { uid: string; name: string }; p2: { uid: string; name: string } };
   picks?: Record<string, MatchPick>;
   createdAt: number;
+  startingPlayer?: PlayerId;
 };
 
 export type MatchInfo = { matchId: string; myPlayerId: PlayerId; uid: string };
@@ -134,6 +136,7 @@ export function findMatch(
             p2: { uid: targetUid, name: targetName },   // claimed = p2
           },
           createdAt: Date.now(),
+          startingPlayer: randomStartingPlayer(),
         };
         await set(matchRef, doc);
         log("match created", matchId);
@@ -181,10 +184,13 @@ export function subscribeMatch(
 }
 
 function deriveState(doc: MatchDoc): GameState {
-  const initial = newGame(doc.mode, doc.theme, doc.players.p1.name, {
-    name: doc.players.p2.name,
-    isBot: false,
-  });
+  const initial = newGame(
+    doc.mode,
+    doc.theme,
+    doc.players.p1.name,
+    { name: doc.players.p2.name, isBot: false },
+    doc.startingPlayer ?? "p1",
+  );
   const entries = Object.entries(doc.picks || {}).sort(([a], [b]) =>
     a < b ? -1 : a > b ? 1 : 0,
   );
@@ -268,6 +274,7 @@ export function watchRematch(
           theme: doc.theme,
           players: doc.players, // same player slots
           createdAt: Date.now(),
+          startingPlayer: randomStartingPlayer(),
         };
         await set(newMatchRef, newDoc);
         await set(ref(db, `matches/${matchId}/nextMatchId`), newMatchId);

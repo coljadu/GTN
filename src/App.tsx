@@ -6,12 +6,11 @@ import {
   type Mode,
   type PlayerId,
   type ThemeId,
-  THEMES,
   TURN_SECONDS,
-  botPick,
   labelFor,
   newGame,
   pick,
+  randomStartingPlayer,
   scoreOf,
   timeout,
 } from "./game";
@@ -36,16 +35,16 @@ import {
   toggleMute,
 } from "./sounds";
 
-type Opponent = "bot" | "online" | "local";
+type Opponent = "online" | "local";
 type Screen = "home" | "matchmaking" | "intermission" | "game" | "online" | "result";
 
 const NAME_STORAGE_KEY = "nd_player_name";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
-  const [mode, setMode] = useState<Mode>("survival");
-  const [theme, setTheme] = useState<ThemeId>("numbers");
-  const [opponent, setOpponent] = useState<Opponent>("bot");
+  const [mode] = useState<Mode>("score");
+  const [theme] = useState<ThemeId>("numbers");
+  const [opponent, setOpponent] = useState<Opponent>("online");
   const [myName, setMyName] = useState<string>(
     () => localStorage.getItem(NAME_STORAGE_KEY) || "Player 1",
   );
@@ -58,12 +57,8 @@ export default function App() {
   }, [myName]);
 
   function startLocal() {
-    const opp =
-      opponent === "bot"
-        ? { name: "Bot", isBot: true }
-        : { name: p2Name || "Player 2", isBot: false };
-    setGame(newGame(mode, theme, myName || "Player 1", opp));
-    setScreen(opponent === "local" ? "intermission" : "game");
+    setGame(newGame(mode, theme, myName || "Player 1", { name: p2Name || "Player 2", isBot: false }, randomStartingPlayer()));
+    setScreen("intermission");
   }
 
   function start() {
@@ -82,8 +77,6 @@ export default function App() {
       <MuteButton />
       {screen === "home" && (
         <Home
-          mode={mode} setMode={setMode}
-          theme={theme} setTheme={setTheme}
           opponent={opponent} setOpponent={setOpponent}
           myName={myName} setMyName={setMyName}
           p2Name={p2Name} setP2Name={setP2Name}
@@ -167,8 +160,6 @@ function MuteButton() {
 /* ---------- Home ---------- */
 
 function Home(props: {
-  mode: Mode; setMode: (m: Mode) => void;
-  theme: ThemeId; setTheme: (t: ThemeId) => void;
   opponent: Opponent; setOpponent: (o: Opponent) => void;
   myName: string; setMyName: (n: string) => void;
   p2Name: string; setP2Name: (n: string) => void;
@@ -178,7 +169,7 @@ function Home(props: {
     <div className="w-full max-w-md bg-slate-800 rounded-2xl p-8 shadow-xl">
       <h1 className="text-3xl font-bold text-center mb-2">Number Duel</h1>
       <p className="text-slate-400 text-center mb-6 text-sm">
-        Pick a cell. Don't pick what your opponent secretly picked.
+        Pick numbers. Highest total wins — but don't pick what your opponent already secretly picked.
       </p>
 
       <Section label="Your Name">
@@ -192,30 +183,13 @@ function Home(props: {
 
       <Section label="Mode">
         <div className="grid grid-cols-2 gap-2">
-          <OptionBtn active={props.mode === "survival"} onClick={() => props.setMode("survival")} title="Survival" sub="Collide = lose" />
-          <OptionBtn active={props.mode === "score"} onClick={() => props.setMode("score")} title="Score" sub="Highest sum wins" />
+          <OptionBtn active={true} onClick={() => {}} title="Score" sub="Highest sum wins" />
+          <OptionBtn active={false} onClick={() => {}} title="Coming Soon" sub="New mode incoming" disabled />
         </div>
       </Section>
 
-      {props.mode === "survival" && (
-        <Section label="Theme">
-          <div className="grid grid-cols-2 gap-2">
-            {(Object.keys(THEMES) as ThemeId[]).map((id) => (
-              <OptionBtn
-                key={id}
-                active={props.theme === id}
-                onClick={() => props.setTheme(id)}
-                title={`${THEMES[id].emoji} ${THEMES[id].label}`}
-                sub={THEMES[id].items.slice(0, 2).join(", ") + "..."}
-              />
-            ))}
-          </div>
-        </Section>
-      )}
-
       <Section label="Opponent">
-        <div className="grid grid-cols-3 gap-2">
-          <OptionBtn active={props.opponent === "bot"} onClick={() => props.setOpponent("bot")} title="Computer" sub="Random bot" />
+        <div className="grid grid-cols-2 gap-2">
           <OptionBtn active={props.opponent === "online"} onClick={() => props.setOpponent("online")} title="Find Player" sub="Online match" />
           <OptionBtn active={props.opponent === "local"} onClick={() => props.setOpponent("local")} title="Local 2P" sub="Same device" />
         </div>
@@ -227,7 +201,7 @@ function Home(props: {
             value={props.p2Name}
             onChange={(e) => props.setP2Name(e.target.value.slice(0, 20))}
             placeholder="Player 2"
-            className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-rose-400 outline-none"
+            className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-emerald-400 outline-none"
           />
         </Section>
       )}
@@ -251,12 +225,17 @@ function Section(p: { label: string; children: React.ReactNode }) {
   );
 }
 
-function OptionBtn(p: { active: boolean; onClick: () => void; title: string; sub: string }) {
+function OptionBtn(p: { active: boolean; onClick: () => void; title: string; sub: string; disabled?: boolean }) {
   return (
     <button
       onClick={p.onClick}
+      disabled={p.disabled}
       className={`p-3 rounded-xl border-2 text-left transition ${
-        p.active ? "border-emerald-400 bg-emerald-500/10" : "border-slate-700 hover:border-slate-600"
+        p.disabled
+          ? "border-slate-800 bg-slate-900/40 opacity-50 cursor-not-allowed"
+          : p.active
+          ? "border-emerald-400 bg-emerald-500/10"
+          : "border-slate-700 hover:border-slate-600"
       }`}
     >
       <div className="font-semibold text-sm">{p.title}</div>
@@ -321,9 +300,7 @@ function Matchmaking(props: {
             <div className="w-12 h-12 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
           </div>
           <h1 className="text-2xl font-bold mb-2">{status}</h1>
-          <p className="text-slate-400 mb-8 text-sm">
-            {props.mode === "survival" ? "Survival" : "Score"} · {THEMES[props.theme].label}
-          </p>
+          <p className="text-slate-400 mb-8 text-sm">Score mode</p>
           <button onClick={handleCancel} className="w-full bg-slate-700 hover:bg-slate-600 py-3 rounded-xl">
             Cancel
           </button>
@@ -349,7 +326,6 @@ function Intermission(p: { playerName: string; onReady: () => void }) {
 
 /* ---------- Local Game ---------- */
 
-const COLLISION_END_DELAY = 2800;
 const COLLISION_TURN_DELAY = 1800;
 
 function LocalGame(props: {
@@ -379,15 +355,6 @@ function LocalGame(props: {
     return () => clearInterval(id);
   }, [state.turn, state.status, frozen]);
 
-  useEffect(() => {
-    if (state.status !== "active" || frozen) return;
-    const current = state.players[state.turn];
-    if (!current.isBot) return;
-    const delay = 700 + Math.random() * 800;
-    const id = setTimeout(() => setState(pick(stateRef.current, botPick(stateRef.current))), delay);
-    return () => clearTimeout(id);
-  }, [state.turn, state.status, frozen]);
-
   const collisionKey = state.lastCollision ? `${state.lastCollision.by}-${state.lastCollision.cell}` : null;
   useEffect(() => {
     if (!collisionKey) return;
@@ -399,7 +366,7 @@ function LocalGame(props: {
 
   useEffect(() => {
     if (state.status !== "ended") return;
-    const delay = state.endReason === "collision" ? COLLISION_END_DELAY : 700;
+    const delay = 700;
     const id = setTimeout(() => props.onEnd(stateRef.current), delay);
     return () => clearTimeout(id);
   }, [state.status, state.endReason]);
@@ -415,12 +382,11 @@ function LocalGame(props: {
 
   function handleTap(c: Cell) {
     if (state.status !== "active" || frozen) return;
-    if (state.players[state.turn].isBot) return;
     if (state.board[c] === null) soundPick();
     setState(pick(state, c));
   }
 
-  const viewer: PlayerId = state.players[state.turn].isBot ? "p1" : state.turn;
+  const viewer: PlayerId = state.turn;
   return (
     <Board
       state={state}
@@ -483,7 +449,7 @@ function OnlineGame(props: {
 
   useEffect(() => {
     if (!state || state.status !== "ended") return;
-    const delay = state.endReason === "collision" ? COLLISION_END_DELAY : 700;
+    const delay = 700;
     const id = setTimeout(() => props.onEnd(stateRef.current!), delay);
     return () => clearTimeout(id);
   }, [state?.status, state?.endReason]);
@@ -548,7 +514,6 @@ function Board(props: {
           active={state.turn === "p1" && state.status === "active"}
           score={state.mode === "score" && viewer === "p1" ? scoreOf(state, "p1") : undefined}
           oppStatus={state.mode === "score" && viewer !== "p1" ? oppStatus : undefined}
-          color="emerald"
           isYou={viewer === "p1"}
         />
         <div className="text-slate-500 text-xs uppercase tracking-wider">vs</div>
@@ -557,7 +522,6 @@ function Board(props: {
           active={state.turn === "p2" && state.status === "active"}
           score={state.mode === "score" && viewer === "p2" ? scoreOf(state, "p2") : undefined}
           oppStatus={state.mode === "score" && viewer !== "p2" ? oppStatus : undefined}
-          color="rose"
           isYou={viewer === "p2"}
         />
       </div>
@@ -583,12 +547,10 @@ function Board(props: {
         {CELLS.map((c) => {
           const owner = state.board[c];
           const isMine = owner === viewer;
-          const isRevealed = state.revealed[c];
-          const showColored = isMine || isRevealed;
-          const ownerColor = owner === "p1" ? "emerald" : owner === "p2" ? "rose" : null;
+          const isOppRevealed = owner !== null && owner !== viewer && state.revealed[c];
           let cls = "bg-slate-700 hover:bg-slate-600 border-2 border-transparent";
-          if (showColored && ownerColor === "emerald") cls = "bg-emerald-500/20 border-2 border-emerald-400 text-emerald-200";
-          else if (showColored && ownerColor === "rose") cls = "bg-rose-500/20 border-2 border-rose-400 text-rose-200";
+          if (isMine) cls = "bg-emerald-500/20 border-2 border-emerald-400 text-emerald-200";
+          else if (isOppRevealed) cls = "bg-rose-500/20 border-2 border-rose-400 text-rose-200";
           const isColliding = c === collidingCell && collisionVisible;
           return (
             <button
@@ -625,15 +587,12 @@ function PlayerBadge(p: {
   active: boolean;
   score?: number;
   oppStatus?: "Leading" | "Trailing" | "Tied";
-  color: "emerald" | "rose";
   isYou?: boolean;
 }) {
-  const ring = p.color === "emerald" ? "ring-emerald-400" : "ring-rose-400";
-  const dot = p.color === "emerald" ? "bg-emerald-400" : "bg-rose-400";
   return (
-    <div className={`flex-1 p-2 rounded-lg text-center ${p.active ? `ring-2 ${ring}` : "opacity-60"}`}>
+    <div className={`flex-1 p-2 rounded-lg text-center ${p.active ? "ring-2 ring-emerald-400" : "opacity-60"}`}>
       <div className="flex items-center justify-center gap-2">
-        <span className={`w-2 h-2 rounded-full ${dot}`} />
+        <span className="w-2 h-2 rounded-full bg-emerald-400" />
         <span className="font-medium text-sm truncate">{p.player.name}{p.isYou ? " (you)" : ""}</span>
       </div>
       {p.score !== undefined && <div className="text-2xl font-bold mt-1">{p.score}</div>}
@@ -712,45 +671,26 @@ function Result(props: {
     }
   }, []);
 
-  let detail: string;
-  if (game.endReason === "collision" && game.lastCollision) {
-    const c = game.lastCollision;
-    const picker = game.players[c.by].name;
-    const ownerId = game.board[c.cell] as PlayerId;
-    const owner = game.players[ownerId].name;
-    const label = labelFor(game.theme, c.cell);
-    detail = `${picker} picked ${label}, which was already taken by ${owner}.`;
-  } else if (game.endReason === "timeout") {
-    detail = `${game.players[game.turn].name} ran out of time.`;
-  } else {
-    detail = "All cells picked.";
-  }
+  const detail =
+    game.endReason === "timeout"
+      ? `${game.players[game.turn].name} ran out of time.`
+      : "All cells picked.";
 
   const showConfetti = iWon || (matchInfo === null && winnerName !== null);
 
   return (
     <div className="w-full max-w-md bg-slate-800 rounded-2xl p-8 shadow-xl text-center relative overflow-hidden">
       {showConfetti && <Confetti />}
-      <div className="text-sm text-slate-400 uppercase tracking-wider mb-2">
-        {game.mode === "survival" ? "Survival" : "Score"} mode
-      </div>
+      <div className="text-sm text-slate-400 uppercase tracking-wider mb-2">Score mode</div>
       <h1 className="text-4xl font-bold mb-2 pop-in">
         {winnerName ? `${winnerName} wins!` : "Draw"}
       </h1>
       <div className="text-slate-400 mb-6 text-sm">{detail}</div>
 
-      {game.mode === "score" && (
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          <div className="bg-emerald-500/10 border border-emerald-400/30 rounded-xl p-4">
-            <div className="text-xs text-slate-400">{game.players.p1.name}</div>
-            <div className="text-3xl font-bold text-emerald-300">{scoreOf(game, "p1")}</div>
-          </div>
-          <div className="bg-rose-500/10 border border-rose-400/30 rounded-xl p-4">
-            <div className="text-xs text-slate-400">{game.players.p2.name}</div>
-            <div className="text-3xl font-bold text-rose-300">{scoreOf(game, "p2")}</div>
-          </div>
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <ScoreCard name={game.players.p1.name} score={scoreOf(game, "p1")} loser={game.winner === "p2"} />
+        <ScoreCard name={game.players.p2.name} score={scoreOf(game, "p2")} loser={game.winner === "p1"} />
+      </div>
 
       {matchInfo ? (
         <OnlineRematchControls
@@ -768,6 +708,18 @@ function Result(props: {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function ScoreCard(p: { name: string; score: number; loser: boolean }) {
+  const cls = p.loser
+    ? "bg-rose-500/10 border-rose-400/30 text-rose-300"
+    : "bg-emerald-500/10 border-emerald-400/30 text-emerald-300";
+  return (
+    <div className={`rounded-xl p-4 border ${cls}`}>
+      <div className="text-xs text-slate-400">{p.name}</div>
+      <div className="text-3xl font-bold">{p.score}</div>
     </div>
   );
 }
