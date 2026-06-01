@@ -34,9 +34,24 @@ import {
   soundWin,
   toggleMute,
 } from "./sounds";
+import {
+  LEVELS,
+  LEVEL_REVEAL_SECONDS,
+  MAX_STRIKES,
+  type Level,
+  type MemoryState,
+  bestLevel as readBestLevel,
+  clearLastResult,
+  newMemoryGame,
+  saveBestLevel,
+  startHunt,
+  stars as starsFor,
+  tapCell,
+} from "./memory";
 
 type Opponent = "online" | "local";
-type Screen = "home" | "matchmaking" | "intermission" | "game" | "online" | "result";
+type GameType = "score" | "memory";
+type Screen = "home" | "matchmaking" | "intermission" | "game" | "online" | "result" | "memory";
 
 const NAME_STORAGE_KEY = "nd_player_name";
 
@@ -44,7 +59,9 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
   const [mode] = useState<Mode>("score");
   const [theme] = useState<ThemeId>("numbers");
+  const [gameType, setGameType] = useState<GameType>("score");
   const [opponent, setOpponent] = useState<Opponent>("online");
+  const [memoryLevel, setMemoryLevel] = useState<Level>(1);
   const [myName, setMyName] = useState<string>(
     () => localStorage.getItem(NAME_STORAGE_KEY) || "Player 1",
   );
@@ -62,6 +79,10 @@ export default function App() {
   }
 
   function start() {
+    if (gameType === "memory") {
+      setScreen("memory");
+      return;
+    }
     if (opponent === "online") setScreen("matchmaking");
     else startLocal();
   }
@@ -77,10 +98,20 @@ export default function App() {
       <MuteButton />
       {screen === "home" && (
         <Home
+          gameType={gameType} setGameType={setGameType}
           opponent={opponent} setOpponent={setOpponent}
           myName={myName} setMyName={setMyName}
           p2Name={p2Name} setP2Name={setP2Name}
+          memoryLevel={memoryLevel} setMemoryLevel={setMemoryLevel}
           onStart={start}
+        />
+      )}
+      {screen === "memory" && (
+        <MemoryGame
+          level={memoryLevel}
+          playerName={myName || "Player"}
+          onHome={() => setScreen("home")}
+          onLevelChange={(l) => setMemoryLevel(l)}
         />
       )}
       {screen === "matchmaking" && (
@@ -160,17 +191,21 @@ function MuteButton() {
 /* ---------- Home ---------- */
 
 function Home(props: {
+  gameType: GameType; setGameType: (g: GameType) => void;
   opponent: Opponent; setOpponent: (o: Opponent) => void;
   myName: string; setMyName: (n: string) => void;
   p2Name: string; setP2Name: (n: string) => void;
+  memoryLevel: Level; setMemoryLevel: (l: Level) => void;
   onStart: () => void;
 }) {
+  const tagline = props.gameType === "score"
+    ? "Pick numbers. Highest total wins — but don't pick what your opponent already secretly picked."
+    : "Memorize where each number is, then find them — one shot per turn, 3 strikes and you're out.";
+
   return (
     <div className="w-full max-w-md bg-slate-800 rounded-2xl p-8 shadow-xl">
       <h1 className="text-3xl font-bold text-center mb-2">Number Duel</h1>
-      <p className="text-slate-400 text-center mb-6 text-sm">
-        Pick numbers. Highest total wins — but don't pick what your opponent already secretly picked.
-      </p>
+      <p className="text-slate-400 text-center mb-6 text-sm">{tagline}</p>
 
       <Section label="Your Name">
         <input
@@ -183,27 +218,43 @@ function Home(props: {
 
       <Section label="Mode">
         <div className="grid grid-cols-2 gap-2">
-          <OptionBtn active={true} onClick={() => {}} title="Score" sub="Highest sum wins" />
-          <OptionBtn active={false} onClick={() => {}} title="Coming Soon" sub="New mode incoming" disabled />
-        </div>
-      </Section>
-
-      <Section label="Opponent">
-        <div className="grid grid-cols-2 gap-2">
-          <OptionBtn active={props.opponent === "online"} onClick={() => props.setOpponent("online")} title="Find Player" sub="Online match" />
-          <OptionBtn active={props.opponent === "local"} onClick={() => props.setOpponent("local")} title="Local 2P" sub="Same device" />
-        </div>
-      </Section>
-
-      {props.opponent === "local" && (
-        <Section label="Player 2 Name">
-          <input
-            value={props.p2Name}
-            onChange={(e) => props.setP2Name(e.target.value.slice(0, 20))}
-            placeholder="Player 2"
-            className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-emerald-400 outline-none"
+          <OptionBtn
+            active={props.gameType === "score"}
+            onClick={() => props.setGameType("score")}
+            title="Score"
+            sub="2-player duel"
           />
-        </Section>
+          <OptionBtn
+            active={props.gameType === "memory"}
+            onClick={() => props.setGameType("memory")}
+            title="Memory"
+            sub="Solo challenge"
+          />
+        </div>
+      </Section>
+
+      {props.gameType === "score" ? (
+        <>
+          <Section label="Opponent">
+            <div className="grid grid-cols-2 gap-2">
+              <OptionBtn active={props.opponent === "online"} onClick={() => props.setOpponent("online")} title="Find Player" sub="Online match" />
+              <OptionBtn active={props.opponent === "local"} onClick={() => props.setOpponent("local")} title="Local 2P" sub="Same device" />
+            </div>
+          </Section>
+
+          {props.opponent === "local" && (
+            <Section label="Player 2 Name">
+              <input
+                value={props.p2Name}
+                onChange={(e) => props.setP2Name(e.target.value.slice(0, 20))}
+                placeholder="Player 2"
+                className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-emerald-400 outline-none"
+              />
+            </Section>
+          )}
+        </>
+      ) : (
+        <MemoryLevelPicker level={props.memoryLevel} setLevel={props.setMemoryLevel} />
       )}
 
       <button
@@ -213,6 +264,37 @@ function Home(props: {
         Start Game
       </button>
     </div>
+  );
+}
+
+function MemoryLevelPicker(p: { level: Level; setLevel: (l: Level) => void }) {
+  const best = readBestLevel();
+  return (
+    <Section label={`Level${best ? ` (best cleared: ${best})` : ""}`}>
+      <div className="grid grid-cols-5 gap-2">
+        {LEVELS.map((l) => {
+          const unlocked = l <= Math.max(1, best + 1);
+          const active = p.level === l;
+          return (
+            <button
+              key={l}
+              onClick={() => unlocked && p.setLevel(l)}
+              disabled={!unlocked}
+              className={`p-3 rounded-xl border-2 text-center transition ${
+                !unlocked
+                  ? "border-slate-800 bg-slate-900/40 opacity-40 cursor-not-allowed"
+                  : active
+                  ? "border-emerald-400 bg-emerald-500/10"
+                  : "border-slate-700 hover:border-slate-600"
+              }`}
+            >
+              <div className="font-bold">{l}</div>
+              <div className="text-[10px] text-slate-400">{LEVEL_REVEAL_SECONDS[l]}s</div>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 
@@ -780,6 +862,268 @@ function OnlineRematchControls(props: {
       <button onClick={props.onHome} className="w-full bg-slate-700 hover:bg-slate-600 py-3 rounded-xl transition">
         Home
       </button>
+    </div>
+  );
+}
+
+/* ---------- Memory Mode ---------- */
+
+const FEEDBACK_DELAY_MS = 1100;
+
+function MemoryGame(props: {
+  level: Level;
+  playerName: string;
+  onHome: () => void;
+  onLevelChange: (l: Level) => void;
+}) {
+  const [state, setState] = useState<MemoryState>(() => newMemoryGame(props.level));
+  const [secondsLeft, setSecondsLeft] = useState(LEVEL_REVEAL_SECONDS[props.level]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // Memorize-phase countdown
+  useEffect(() => {
+    if (state.status !== "memorize") return;
+    const total = LEVEL_REVEAL_SECONDS[state.level];
+    setSecondsLeft(total);
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      const elapsed = (Date.now() - startedAt) / 1000;
+      const remaining = Math.max(0, total - elapsed);
+      setSecondsLeft(remaining);
+      if (remaining <= 0) {
+        clearInterval(id);
+        setState((s) => startHunt(s));
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [state.status, state.level]);
+
+  // Feedback hold then clear (and play sound on transition)
+  useEffect(() => {
+    if (!state.lastResult) return;
+    if (state.lastResult.kind === "correct") soundPick();
+    else soundCollision();
+    const t = setTimeout(() => {
+      setState((s) => {
+        if (s.status === "hunt") return clearLastResult(s);
+        return s; // won/lost — keep result for end transition
+      });
+    }, FEEDBACK_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [state.lastResult]);
+
+  // Win / lose sound + save best
+  useEffect(() => {
+    if (state.status === "won") {
+      soundWin();
+      saveBestLevel(state.level);
+    } else if (state.status === "lost") {
+      soundLose();
+    }
+  }, [state.status]);
+
+  function handleTap(cell: Cell) {
+    setState((s) => tapCell(s, cell));
+  }
+
+  function restartSameLevel() {
+    setState(newMemoryGame(state.level));
+  }
+  function nextLevel() {
+    const nl = (Math.min(5, state.level + 1) as Level);
+    props.onLevelChange(nl);
+    setState(newMemoryGame(nl));
+  }
+
+  if (state.status === "won" || state.status === "lost") {
+    return (
+      <MemoryResult
+        state={state}
+        playerName={props.playerName}
+        onRestart={restartSameLevel}
+        onNext={state.status === "won" && state.level < 5 ? nextLevel : undefined}
+        onHome={props.onHome}
+      />
+    );
+  }
+
+  return (
+    <MemoryBoard
+      state={state}
+      secondsLeft={secondsLeft}
+      onTap={handleTap}
+      onSkipMemorize={() => setState((s) => startHunt(s))}
+      onQuit={props.onHome}
+    />
+  );
+}
+
+function MemoryBoard(props: {
+  state: MemoryState;
+  secondsLeft: number;
+  onTap: (c: Cell) => void;
+  onSkipMemorize: () => void;
+  onQuit: () => void;
+}) {
+  const { state, secondsLeft } = props;
+  const isMemorize = state.status === "memorize";
+  const total = LEVEL_REVEAL_SECONDS[state.level];
+  const timerPct = isMemorize ? (secondsLeft / total) * 100 : 0;
+  const target = state.queue[0];
+  const disabled = !!state.lastResult || isMemorize;
+
+  return (
+    <div className="w-full max-w-md bg-slate-800 rounded-2xl p-6 shadow-xl">
+      <div className="flex justify-between items-center mb-3">
+        <div className="text-sm text-slate-400">Level {state.level}</div>
+        <Strikes used={state.strikes} />
+      </div>
+
+      {isMemorize && (
+        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mb-3">
+          <div
+            className="h-full bg-emerald-400"
+            style={{ width: `${timerPct}%`, transition: "width 0.1s linear" }}
+          />
+        </div>
+      )}
+
+      <div className="text-center mb-4 h-10 flex items-center justify-center">
+        {isMemorize ? (
+          <div className="text-lg font-medium text-emerald-300">
+            Memorize! {Math.ceil(secondsLeft)}s
+          </div>
+        ) : state.lastResult?.kind === "wrong" ? (
+          <div className="fade-in text-rose-300 font-medium">
+            {state.lastResult.number} is not under that tile
+          </div>
+        ) : state.lastResult?.kind === "correct" ? (
+          <div className="fade-in text-emerald-300 font-medium">
+            ✓ Found {state.lastResult.number}!
+          </div>
+        ) : (
+          <div className="text-lg">
+            Find <span className="text-3xl font-bold text-emerald-300 ml-1">{target}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        {CELLS.map((c) => {
+          const number = state.layout[c];
+          const isFound = state.found[c];
+          const showNumber = isMemorize || isFound;
+          const isWrong =
+            state.lastResult?.kind === "wrong" && state.lastResult.cell === c;
+          const isCorrect =
+            state.lastResult?.kind === "correct" && state.lastResult.cell === c;
+
+          let cls = "bg-slate-700 hover:bg-slate-600 border-2 border-transparent text-slate-200";
+          if (isFound) cls = "bg-emerald-500/20 border-2 border-emerald-400 text-emerald-200";
+          if (isCorrect) cls = "bg-emerald-500/30 border-2 border-emerald-400 text-emerald-200";
+          if (isWrong) cls = "bg-rose-500/20 border-2 border-rose-400 text-rose-200";
+          if (isMemorize) cls = "bg-slate-700/50 border-2 border-slate-600 text-slate-100";
+
+          return (
+            <button
+              key={c}
+              onClick={() => props.onTap(c)}
+              disabled={disabled || isFound}
+              className={`aspect-square rounded-xl text-2xl font-bold transition flex items-center justify-center ${cls} ${
+                isWrong ? "collision-shake" : ""
+              }`}
+            >
+              {showNumber ? number : "?"}
+            </button>
+          );
+        })}
+      </div>
+
+      {isMemorize ? (
+        <button
+          onClick={props.onSkipMemorize}
+          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold py-3 rounded-xl transition mb-2"
+        >
+          I'm Ready
+        </button>
+      ) : null}
+
+      <button onClick={props.onQuit} className="w-full text-slate-400 hover:text-slate-200 text-sm py-2">
+        Quit
+      </button>
+    </div>
+  );
+}
+
+function Strikes({ used }: { used: number }) {
+  return (
+    <div className="flex gap-1">
+      {Array.from({ length: MAX_STRIKES }).map((_, i) => (
+        <span
+          key={i}
+          className={`w-3 h-3 rounded-full ${i < used ? "bg-rose-500" : "bg-slate-600"}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MemoryResult(props: {
+  state: MemoryState;
+  playerName: string;
+  onRestart: () => void;
+  onNext?: () => void;
+  onHome: () => void;
+}) {
+  const { state, playerName } = props;
+  const won = state.status === "won";
+  const star = won ? starsFor(state.strikes) : 0;
+  const foundCount = CELLS.filter((c) => state.found[c]).length;
+
+  return (
+    <div className="w-full max-w-md bg-slate-800 rounded-2xl p-8 shadow-xl text-center relative overflow-hidden">
+      {won && star === 3 && <Confetti />}
+      <div className="text-sm text-slate-400 uppercase tracking-wider mb-2">
+        Memory · Level {state.level}
+      </div>
+      <h1 className="text-4xl font-bold mb-2 pop-in">
+        {won ? `${playerName}, you did it!` : "Game over"}
+      </h1>
+      <div className="text-slate-400 mb-4 text-sm">
+        {won
+          ? `Cleared with ${state.strikes} strike${state.strikes === 1 ? "" : "s"}.`
+          : `Found ${foundCount} of 9 before running out of strikes.`}
+      </div>
+
+      {won && (
+        <div className="text-4xl mb-6">
+          {"⭐".repeat(star)}
+          <span className="opacity-20">{"⭐".repeat(3 - star)}</span>
+        </div>
+      )}
+
+      {!won && <div className="text-3xl mb-6">💔</div>}
+
+      <div className="space-y-2">
+        {won && props.onNext && (
+          <button
+            onClick={props.onNext}
+            className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold py-3 rounded-xl transition"
+          >
+            Next Level
+          </button>
+        )}
+        <button
+          onClick={props.onRestart}
+          className={`w-full ${won && props.onNext ? "bg-slate-700 hover:bg-slate-600" : "bg-emerald-500 hover:bg-emerald-400 text-slate-900"} font-bold py-3 rounded-xl transition`}
+        >
+          {won ? "Replay Level" : "Try Again"}
+        </button>
+        <button onClick={props.onHome} className="w-full bg-slate-700 hover:bg-slate-600 py-3 rounded-xl transition">
+          Home
+        </button>
+      </div>
     </div>
   );
 }
