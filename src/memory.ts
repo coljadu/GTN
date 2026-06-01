@@ -4,14 +4,14 @@ export type Level = 1 | 2 | 3 | 4 | 5;
 export const LEVELS: Level[] = [1, 2, 3, 4, 5];
 
 export const LEVEL_REVEAL_SECONDS: Record<Level, number> = {
-  1: 6,
-  2: 4.5,
-  3: 3,
-  4: 2,
-  5: 1.2,
+  1: 12,
+  2: 8,
+  3: 5,
+  4: 3,
+  5: 1.5,
 };
 
-export const MAX_STRIKES = 3;
+export const MAX_STRIKES = 5;
 
 export type MemoryStatus = "memorize" | "hunt" | "won" | "lost";
 
@@ -105,6 +105,8 @@ export function saveBestLevel(level: Level): void {
 }
 
 export function stars(strikes: number): 0 | 1 | 2 | 3 {
-  if (strikes >= 3) return 0;
-  return (3 - strikes) as 1 | 2 | 3;
+  // strikes here = number used during a WIN (so always < MAX_STRIKES)
+  if (strikes === 0) return 3;
+  if (strikes <= 2) return 2;
+  return 1;
 }
